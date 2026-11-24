@@ -33,27 +33,32 @@ import {
   useToken,
   useDAOStats,
 } from '@/hooks/useDAO'
-import { generateCommitment, storeCommitSalt, loadCommitSalt } from '@/lib/utils'
+import { cn, generateCommitment, storeCommitSalt, loadCommitSalt } from '@/lib/utils'
 import { PROPOSAL_STATUS_LABELS, PROPOSAL_STATUS_AWAITING_FUNDS } from '@/constants'
 import toast from 'react-hot-toast'
 
 /** File picker for a salt backup. Shared by both places a salt can be imported. */
 function SaltImportButton({ onFile, className }: { onFile: (file: File) => void; className?: string }) {
   return (
-    <label className={`cursor-pointer ${className ?? ''}`}>
+    <label
+      className={cn(
+        'relative block cursor-pointer rounded focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
+        className
+      )}
+    >
       <input
         type="file"
         accept=".json"
-        className="hidden"
+        className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0]
           if (file) onFile(file)
         }}
       />
-      <div className="flex items-center gap-2 rounded bg-amber-200 px-3 py-2 text-amber-900 hover:bg-amber-300 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800">
-        <Upload className="h-4 w-4" />
+      <span className="flex items-center gap-2 rounded bg-amber-200 px-3 py-2 text-amber-900 hover:bg-amber-300 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800">
+        <Upload className="h-4 w-4" aria-hidden="true" />
         <span className="text-sm font-medium">Import Salt Backup</span>
-      </div>
+      </span>
     </label>
   )
 }
@@ -70,7 +75,7 @@ export default function TreasuryProposalDetailPage() {
   const { executeTreasuryProposal, isPending: isExecuting } = useExecuteTreasuryProposal()
   const { commitVote, isPending: isCommitting } = useCommitVote()
   const { revealVote, isPending: isRevealing } = useRevealVote()
-  const { isPaused } = useDAOStats()
+  const { isPaused, treasuryBalance, refetch: refetchStats } = useDAOStats()
   const { cid: documentCid } = useProposalDocument('Treasury', proposalId)
 
   const [showCommitDialog, setShowCommitDialog] = useState(false)
@@ -231,12 +236,17 @@ export default function TreasuryProposalDetailPage() {
     )
   }
 
+  // True when the treasury cannot cover the requested amount — the execute call
+  // would fail on-chain with InsufficientTreasury in that case.
+  const isTreasuryShort = !!proposal && treasuryBalance < proposal.amount
+
   // Permissionless completion of a withdrawal approved while the treasury was
   // short. Failures are surfaced by the write hook's toast.
   const handleExecute = async () => {
     try {
       await executeTreasuryProposal(proposalId)
       refetch()
+      refetchStats()
     } catch {
       /* reported by useWriteAction */
     }
@@ -279,10 +289,22 @@ export default function TreasuryProposalDetailPage() {
             </CardDescription>
           </CardHeader>
           {isMember && (
-            <CardContent>
-              <Button onClick={handleExecute} disabled={isExecuting || isPaused}>
+            <CardContent className="space-y-2">
+              <Button
+                onClick={handleExecute}
+                disabled={isExecuting || isPaused || isTreasuryShort}
+              >
                 {isExecuting ? 'Executing…' : 'Execute'}
               </Button>
+              {isTreasuryShort && (
+                <p className="text-xs text-muted-foreground">
+                  Treasury balance is below the requested amount — execution will succeed once the
+                  treasury is topped up.
+                </p>
+              )}
+              {isPaused && !isTreasuryShort && (
+                <p className="text-xs text-muted-foreground">Execution is unavailable while the DAO is paused.</p>
+              )}
             </CardContent>
           )}
         </Card>

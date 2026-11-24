@@ -21,6 +21,8 @@ export const queryKeyPrefixes = {
   memberSummary: ['memberSummary'] as const,
   memberActivity: ['memberActivity'] as const,
   members: ['members'] as const,
+  delegate: ['delegate'] as const,
+  votingWeight: ['votingWeight'] as const,
   hasVoted: (kind: ProposalKind) => ['hasVoted', kind] as const,
   proposalDocument: (kind: ProposalKind) => ['document', kind] as const,
 }
@@ -32,6 +34,7 @@ export const queryKeys = {
   userLoans: (address: Address) => [...queryKeyPrefixes.userLoans, address] as const,
   userLoansDisabled: () => [...queryKeyPrefixes.userLoans, null] as const,
   loanPolicy: () => ['loanPolicy'] as const,
+  pendingPolicyUpdate: () => ['pendingPolicyUpdate'] as const,
   loanEligibility: (address: Address) => [...queryKeyPrefixes.loanEligibility, address] as const,
   loanEligibilityDisabled: () => [...queryKeyPrefixes.loanEligibility, null] as const,
   loanTerms: (amount: bigint) => ['loanTerms', amount.toString()] as const,
@@ -70,9 +73,16 @@ export const queryKeys = {
   memberOverview: (address: Address) => ['memberOverview', address] as const,
   delegate: (address: Address) => ['delegate', address] as const,
   votingWeight: (address: Address) => ['votingWeight', address] as const,
+  delegate: (address: Address) => [...queryKeyPrefixes.delegate, address] as const,
+  delegateDisabled: () => [...queryKeyPrefixes.delegate, null] as const,
+  votingWeight: (address: Address) => [...queryKeyPrefixes.votingWeight, address] as const,
+  votingWeightDisabled: () => [...queryKeyPrefixes.votingWeight, null] as const,
   daoToken: () => ['daoToken'] as const,
   tokenMetadata: (tokenId: string) => ['tokenMetadata', tokenId] as const,
   tokenBalance: (tokenId: string, address: Address) => ['tokenBalance', tokenId, address] as const,
+  whitelistedTokens: () => ['whitelistedTokens'] as const,
+  assetBalance: (tokenId: string | null | undefined, address: Address | null) => ['assetBalance', tokenId, address] as const,
+  contractInfo: () => ['contractInfo'] as const,
 }
 
 export const allWalletScopedQueryKeys = (): QueryKey[] => [
@@ -80,6 +90,8 @@ export const allWalletScopedQueryKeys = (): QueryKey[] => [
   ['userLoans'],
   ['hasVoted'],
   ['stake'],
+  ['delegate'],
+  ['votingWeight'],
   ['document'],
   ['notifications'],
   ['tokenBalance'],

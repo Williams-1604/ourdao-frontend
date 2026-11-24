@@ -280,6 +280,7 @@ export default function DocumentUpload({
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  aria-label="Enter encryption password"
                   placeholder="Enter encryption password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

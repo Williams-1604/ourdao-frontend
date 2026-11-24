@@ -17,6 +17,10 @@ import {
   useAdminActions,
   useAdminLog,
   useFailedEvents,
+  usePauserActions,
+  usePolicyUpdateActions,
+  usePendingPolicyUpdate,
+  useRawLoanPolicy,
 } from '@/hooks/useDAO'
 import { AddressLink } from '@/components/AddressLink'
 import { LoadError } from '@/components/LoadError'
@@ -26,12 +30,15 @@ import { formatStellarAddress, isStellarAddress } from '@/lib/stellar'
 import { LoadingSpinner } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/PageHeader'
 import { StatCard } from '@/components/ui/stat-card'
+import { useNow } from '@/hooks/useNow'
+import type { LoanPolicy } from '@/lib/dao-client'
 
-type Tab = 'overview' | 'governance' | 'activity' | 'quarantined'
+type Tab = 'overview' | 'governance' | 'policy' | 'activity' | 'quarantined'
 
 const TABS: { id: Tab; name: string; icon: ReactNode }[] = [
   { id: 'overview', name: 'Overview', icon: <ChartBarIcon className="h-4 w-4" /> },
   { id: 'governance', name: 'Governance', icon: <UsersIcon className="h-4 w-4" /> },
+  { id: 'policy', name: 'Policy & Pauser', icon: <ShieldCheckIcon className="h-4 w-4" /> },
   { id: 'activity', name: 'Activity Log', icon: <ClockIcon className="h-4 w-4" /> },
   { id: 'quarantined', name: 'Quarantined Events', icon: <ExclamationTriangleIcon className="h-4 w-4" /> },
 ]
@@ -119,6 +126,7 @@ export default function AdminPage() {
           <div className="p-6">
             {activeTab === 'overview' && <OverviewTab stats={stats} />}
             {activeTab === 'governance' && <GovernanceTab stats={stats} />}
+            {activeTab === 'policy' && <PolicyPauserTab />}
             {activeTab === 'activity' && <ActivityTab />}
             {activeTab === 'quarantined' && <QuarantinedEventsTab />}
           </div>
@@ -187,6 +195,8 @@ function OverviewTab({ stats }: { stats: ReturnType<typeof useDAOStats> }) {
           </button>
         </div>
       </div>
+
+      <PendingPolicyUpdatePanel />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard label="Active Members" value={stats.activeMembers.toLocaleString()} sub={`${stats.totalMembers} total ever joined`} />
@@ -332,6 +342,162 @@ function GovernanceTab({ stats }: { stats: ReturnType<typeof useDAOStats> }) {
   )
 }
 
+function PolicyPauserTab() {
+  const { setPauser, revokePauser, isPending: pauserPending } = usePauserActions()
+  const { proposePolicyUpdate, executePolicyUpdate, cancelPolicyUpdate, isPending: policyPending } = usePolicyUpdateActions()
+  const [pauserAddr, setPauserAddr] = useState('')
+  const [maxAmount, setMaxAmount] = useState('')
+  const [interestBps, setInterestBps] = useState('')
+  const [maxDuration, setMaxDuration] = useState('')
+
+  const submitSetPauser = async (e: FormEvent) => {
+    e.preventDefault()
+    const addr = pauserAddr.trim()
+    if (!addr) return
+    if (!window.confirm(`Grant pause rights to ${addr}?`)) return
+    try { await setPauser(addr) } catch { return }
+    setPauserAddr('')
+  }
+
+  const submitRevokePauser = async () => {
+    if (!window.confirm('Revoke the current pauser role?')) return
+    try { await revokePauser() } catch { return }
+  }
+
+  const submitPropose = async (e: FormEvent) => {
+    e.preventDefault()
+    const amount = Number(maxAmount)
+    const bps = Number(interestBps)
+    const dur = Number(maxDuration)
+    if (!amount || !bps || !dur) return
+    if (!window.confirm(`Propose policy update: max loan ${amount}, interest ${bps} bps, duration ${dur} ledgers?`)) return
+    try {
+      await proposePolicyUpdate({
+        max_loan_amount: BigInt(amount),
+        interest_rate_bps: bps,
+        max_loan_duration_ledgers: dur,
+      } as any)
+    } catch { return }
+    setMaxAmount(''); setInterestBps(''); setMaxDuration('')
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Pauser role */}
+      <div className="bg-card rounded-lg border border-border">
+        <div className="px-6 py-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">Pauser Role</h3>
+          <p className="text-sm text-muted-foreground">Grant or revoke the right to pause the DAO without full admin privileges.</p>
+        </div>
+        <form onSubmit={submitSetPauser} className="p-6 flex items-start space-x-2">
+          <input
+            type="text"
+            value={pauserAddr}
+            onChange={(e) => setPauserAddr(e.target.value)}
+            placeholder="G… address to grant pauser role"
+            aria-label="Pauser address"
+            className="flex-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-muted dark:text-foreground"
+          />
+          <button
+            type="submit"
+            disabled={pauserPending || !pauserAddr.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            Set Pauser
+          </button>
+        </form>
+        <div className="px-6 pb-6">
+          <button
+            onClick={submitRevokePauser}
+            disabled={pauserPending}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+          >
+            Revoke Pauser
+          </button>
+        </div>
+      </div>
+
+      {/* Policy update flow */}
+      <div className="bg-card rounded-lg border border-border">
+        <div className="px-6 py-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">Loan Policy Update</h3>
+          <p className="text-sm text-muted-foreground">Propose, execute, or cancel the governed policy-update flow.</p>
+        </div>
+        <form onSubmit={submitPropose} className="p-6 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Max Loan Amount</label>
+              <input
+                type="number"
+                min={1}
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(e.target.value)}
+                placeholder="stroops"
+                aria-label="Max loan amount in stroops"
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-muted dark:text-foreground"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Interest Rate (bps)</label>
+              <input
+                type="number"
+                min={1}
+                max={10000}
+                value={interestBps}
+                onChange={(e) => setInterestBps(e.target.value)}
+                placeholder="e.g. 500 = 5%"
+                aria-label="Interest rate in basis points"
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-muted dark:text-foreground"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Max Duration (ledgers)</label>
+              <input
+                type="number"
+                min={1}
+                value={maxDuration}
+                onChange={(e) => setMaxDuration(e.target.value)}
+                placeholder="ledgers"
+                aria-label="Max loan duration in ledgers"
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-muted dark:text-foreground"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={policyPending || !maxAmount || !interestBps || !maxDuration}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            Propose Update
+          </button>
+        </form>
+        <div className="px-6 pb-6 flex space-x-3">
+          <button
+            onClick={async () => {
+              if (!window.confirm('Execute the pending policy update?')) return
+              try { await executePolicyUpdate() } catch { return }
+            }}
+            disabled={policyPending}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+          >
+            Execute Update
+          </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Cancel the pending policy update?')) return
+              try { await cancelPolicyUpdate() } catch { return }
+            }}
+            disabled={policyPending}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+          >
+            Cancel Update
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ActivityTab() {
   const { entries, isLoading, isError, refetch } = useAdminLog(100)
   useAnnounceLoad('Admin event history', isLoading, isError)
@@ -412,5 +578,143 @@ function QuarantinedEventsTab() {
         ))}
       </div>
     </div>
+  )
+}
+
+// Every LoanPolicy field, in the order the contract stores them. Units follow
+// the contract: basis points (bps), seconds (s), or stroops for the membership fee.
+const POLICY_FIELDS: { key: keyof LoanPolicy; label: string }[] = [
+  { key: 'min_interest_rate', label: 'Min interest rate (bps)' },
+  { key: 'max_interest_rate', label: 'Max interest rate (bps)' },
+  { key: 'max_loan_duration', label: 'Max loan duration (s)' },
+  { key: 'max_loan_to_treasury_ratio', label: 'Max loan to treasury ratio (bps)' },
+  { key: 'membership_contribution', label: 'Membership contribution (stroops)' },
+  { key: 'min_membership_duration', label: 'Min membership duration (s)' },
+  { key: 'cooldown_period', label: 'Cooldown period (s)' },
+  { key: 'editing_period', label: 'Editing period (s)' },
+  { key: 'voting_period', label: 'Voting period (s)' },
+  { key: 'quorum_bps', label: 'Quorum (bps)' },
+  { key: 'default_grace_period', label: 'Default grace period (s)' },
+  { key: 'default_penalty_bps', label: 'Default penalty (bps)' },
+]
+
+function formatPolicyValue(value: unknown): string {
+  return value === undefined || value === null ? '—' : String(value)
+}
+
+function formatTimeLeft(seconds: number): string {
+  if (seconds <= 0) return 'Ready to execute'
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor((seconds % 86_400) / 3_600)
+  const minutes = Math.floor((seconds % 3_600) / 60)
+  if (days === 0 && hours === 0 && minutes === 0) return 'Executable in less than a minute'
+  return `Executable in ${days}d ${hours}h ${minutes}m`
+}
+
+/** Shows a queued policy change beside the live values. Renders nothing when no
+ *  update is pending. Changed fields are marked in text, not only by colour. */
+function PendingPolicyUpdatePanel() {
+  const { pending } = usePendingPolicyUpdate()
+  const current = useRawLoanPolicy()
+  const nowMs = useNow()
+  const { executePolicyUpdate, cancelPolicyUpdate, isPending: busy } = usePolicyUpdateActions()
+
+  if (!pending) return null
+
+  const nowSec = nowMs == null ? null : Math.floor(nowMs / 1000)
+  const timeLeft =
+    nowSec == null ? 'Checking time left…' : formatTimeLeft(pending.executionTime - nowSec)
+  const ready = nowSec != null && nowSec >= pending.executionTime
+
+  const onExecute = async () => {
+    if (!ready) return
+    if (!window.confirm('Execute the pending policy update? The new loan policy applies to every member immediately.')) return
+    try {
+      await executePolicyUpdate()
+    } catch {
+      // `run` has already shown the failure; nothing more to do here.
+    }
+  }
+
+  const onCancel = async () => {
+    if (!window.confirm('Cancel the pending policy update? Its proposed values will be discarded.')) return
+    try {
+      await cancelPolicyUpdate()
+    } catch {
+      // `run` has already shown the failure; nothing more to do here.
+    }
+  }
+
+  return (
+    <section aria-labelledby="pending-policy-heading" className="rounded-lg border border-border bg-card">
+      <div className="px-6 py-4 border-b border-border flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 id="pending-policy-heading" className="text-lg font-semibold text-foreground">
+            Pending policy update
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Proposed {new Date(pending.proposedAt * 1000).toLocaleString()}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            className={`text-sm font-medium ${
+              ready ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'
+            }`}
+          >
+            {timeLeft}
+          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={!pending || busy}
+            className="px-3 py-2 rounded-md border border-border text-sm text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            Cancel update
+          </button>
+          <button
+            type="button"
+            onClick={onExecute}
+            disabled={!ready || busy}
+            title={ready ? 'Apply the pending update' : 'Available once the timelock has passed'}
+            className="px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
+          >
+            Execute update
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-muted-foreground">
+              <th scope="col" className="px-6 py-2 font-medium">Setting</th>
+              <th scope="col" className="px-6 py-2 font-medium">Current</th>
+              <th scope="col" className="px-6 py-2 font-medium">Proposed</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {POLICY_FIELDS.map(({ key, label }) => {
+              const before = current?.[key]
+              const proposed = pending.policy[key]
+              const changed = before !== undefined && String(before) !== String(proposed)
+              return (
+                <tr key={key}>
+                  <th scope="row" className="px-6 py-2 text-left font-normal text-foreground">{label}</th>
+                  <td className="px-6 py-2 font-mono text-muted-foreground">{formatPolicyValue(before)}</td>
+                  <td className="px-6 py-2 font-mono text-foreground">
+                    {formatPolicyValue(proposed)}
+                    {changed && (
+                      <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 font-sans text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                        Changed
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }

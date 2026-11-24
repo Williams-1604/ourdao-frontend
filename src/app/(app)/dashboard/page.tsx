@@ -15,7 +15,7 @@ import {
   ArrowUpRightIcon,
   TrophyIcon,
 } from '@/lib/icons'
-import { useDAOStats, useUserData, useRewards, useDAOEvents, eventLabel } from '@/hooks/useDAO'
+import { useDAOStats, useUserData, useRewards, useDAOEvents, useVotingWeight, eventLabel } from '@/hooks/useDAO'
 import { useRequireMember } from '@/hooks/useRequireMember'
 import { LoadError } from '@/components/LoadError'
 import { useAnnounceLoad } from '@/lib/useAnnounceLoad'
@@ -30,6 +30,8 @@ import { PageHeader } from '@/components/PageHeader'
 export default function DashboardPage() {
   const stats = useDAOStats()
   const userData = useUserData()
+  // The contract's effective weight; the local stake estimate is only a loading placeholder (#603).
+  const contractWeight = useVotingWeight(userData.address)
   const { claimRewards, isPending, isSuccess } = useRewards()
   const { events, isError: eventsError, refetch: refetchEvents } = useDAOEvents()
   // The redirect decision lives in the shared guard (#307) so it waits for the
@@ -212,7 +214,9 @@ export default function DashboardPage() {
                 
                 <div className="text-right">
                   <div className="text-sm text-muted-foreground">Voting Weight</div>
-                  <div className="text-2xl font-bold text-foreground">{userData.votingWeight ?? '—'}</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    {contractWeight.isError ? 'Unavailable' : (contractWeight.votingWeight ?? userData.votingWeight ?? '—')}
+                  </div>
                 </div>
               </div>
             </CardContent>

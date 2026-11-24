@@ -59,6 +59,7 @@ vi.mock('@/hooks/useDAO', () => ({
     error: null,
     isSuccess: false,
   }),
+  useVotingWeight: () => ({ votingWeight: 4, isLoading: false, isError: false, refetch: vi.fn() }),
 }))
 
 vi.mock('@/lib/responsive', () => ({

@@ -95,6 +95,8 @@ describe('daoWrite — method name and ScVal argument types per entrypoint', () 
     // Permissionless: no caller argument.
     ['markLoanDefaulted', (w) => w.markLoanDefaulted(3), 'mark_loan_defaulted', ['scvU32']],
     ['disburseApprovedLoan', (w) => w.disburseApprovedLoan(5), 'disburse_approved_loan', ['scvU32']],
+    ['expireLoanProposal', (w) => w.expireLoanProposal(7), 'expire_loan_proposal', ['scvU32']],
+    ['expireTreasuryProposal', (w) => w.expireTreasuryProposal(8), 'expire_treasury_proposal', ['scvU32']],
     ['executeTreasuryProposal', (w) => w.executeTreasuryProposal(6), 'execute_treasury_proposal', ['scvU32']],
     [
       'proposeTreasuryWithdrawal',
@@ -120,6 +122,9 @@ describe('daoWrite — method name and ScVal argument types per entrypoint', () 
     ['setLoanPolicy', (w) => w.setLoanPolicy(policy), 'set_loan_policy', ['scvAddress', 'scvMap']],
     ['pause', (w) => w.pause(), 'pause', ['scvAddress']],
     ['unpause', (w) => w.unpause(), 'unpause', ['scvAddress']],
+    ['delegateVote', (w) => w.delegateVote(OTHER), 'delegate_vote', ['scvAddress', 'scvAddress']],
+    ['cancelLoanProposal', (w) => w.cancelLoanProposal(9), 'cancel_loan_proposal', ['scvAddress', 'scvU32']],
+    ['cancelTreasuryProposal', (w) => w.cancelTreasuryProposal(10), 'cancel_treasury_proposal', ['scvAddress', 'scvU32']],
   ]
 
   it.each(cases)('%s invokes the right function with correctly typed args', async (_label, call, method, types) => {
